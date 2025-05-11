@@ -58,6 +58,7 @@ jobs:
         export RANLIB=$NDK_TOOLCHAIN/llvm-ranlib
         export STRIP=$NDK_TOOLCHAIN/llvm-strip
 
+        ./autogen.sh
         ./configure --host $TARGET --prefix=/data/sysroot
         make -j $(nproc)
         sudo make install
