@@ -36,7 +36,7 @@ static int uv__random(void* buf, size_t buflen) {
 #elif defined(_AIX) || defined(__QNX__)
   rc = uv__random_readpath("/dev/random", buf, buflen);
 #elif defined(__APPLE__) || defined(__OpenBSD__) || \
-     (defined(__ANDROID_API__) && __ANDROID_API__ >= 28)
+     defined(__ANDROID__)
   rc = uv__random_getentropy(buf, buflen);
   if (rc == UV_ENOSYS)
     rc = uv__random_devurandom(buf, buflen);
