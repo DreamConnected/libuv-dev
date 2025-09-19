@@ -267,9 +267,6 @@ struct watcher_root {
 };
 
 static int uv__inotify_fork(uv_loop_t* loop, struct watcher_list* root);
-static void uv__inotify_read(uv_loop_t* loop,
-                             uv__io_t* w,
-                             unsigned int revents);
 static int compare_watchers(const struct watcher_list* a,
                             const struct watcher_list* b);
 static void maybe_free_watcher_list(struct watcher_list* w,
@@ -1562,7 +1559,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
           have_signals = 1;
         } else {
           uv__metrics_update_idle_time(loop);
-          w->cb(loop, w, pe->events);
+          uv__io_cb(loop, w, pe->events);
         }
 
         nevents++;
@@ -1578,7 +1575,7 @@ void uv__io_poll(uv_loop_t* loop, int timeout) {
 
     if (have_signals != 0) {
       uv__metrics_update_idle_time(loop);
-      loop->signal_io_watcher.cb(loop, &loop->signal_io_watcher, POLLIN);
+      uv__signal_event(loop, &loop->signal_io_watcher, POLLIN);
     }
 
     lfields->inv = NULL;
@@ -2045,13 +2042,6 @@ int uv_interface_addresses(uv_interface_address_t** addresses, int* count) {
 }
 
 
-/* TODO(bnoordhuis) share with bsd-ifaddrs.c */
-void uv_free_interface_addresses(uv_interface_address_t* addresses,
-                                 int count) {
-  uv__free(addresses);
-}
-
-
 void uv__set_process_title(const char* title) {
 #if defined(PR_SET_NAME)
   prctl(PR_SET_NAME, title);  /* Only copies first 16 characters. */
@@ -2309,8 +2299,8 @@ static int uv__get_cgroupv2_constrained_cpu(const char* cgroup,
   static const char cgroup_mount[] = "/sys/fs/cgroup";
   const char* cgroup_trimmed;
   char buf[1024];
-  char full_path[256];
   char path[256];
+  char full_path[sizeof(path) + sizeof("/cpu.max")];
   char quota_buf[16];
   char* last_slash;
   int cgroup_size;
@@ -2370,6 +2360,8 @@ static int uv__get_cgroupv2_constrained_cpu(const char* cgroup,
       goto next;
 
     *quota = limit / period;
+    if (*quota == 0)
+        *quota = 1;
     if (*quota < min_quota)
       min_quota = *quota;
 
@@ -2499,7 +2491,7 @@ static int init_inotify(uv_loop_t* loop) {
   if (fd < 0)
     return UV__ERR(errno);
 
-  err = uv__io_init_start(loop, &loop->inotify_read_watcher, uv__inotify_read,
+  err = uv__io_init_start(loop, &loop->inotify_read_watcher, UV__INOTIFY_READ,
                           fd, POLLIN);
   if (err) {
     uv__close(fd);
@@ -2595,9 +2587,7 @@ static void maybe_free_watcher_list(struct watcher_list* w, uv_loop_t* loop) {
 }
 
 
-static void uv__inotify_read(uv_loop_t* loop,
-                             uv__io_t* dummy,
-                             unsigned int events) {
+void uv__inotify_read(uv_loop_t* loop, uv__io_t* dummy, unsigned int events) {
   const struct inotify_event* e;
   struct watcher_list* w;
   uv_fs_event_t* h;

@@ -41,7 +41,6 @@
 #endif
 
 static void uv__udp_run_completed(uv_udp_t* handle);
-static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents);
 static void uv__udp_recvmsg(uv_udp_t* handle);
 static void uv__udp_sendmsg(uv_udp_t* handle);
 static int uv__udp_maybe_deferred_bind(uv_udp_t* handle,
@@ -136,7 +135,7 @@ static void uv__udp_run_completed(uv_udp_t* handle) {
 }
 
 
-static void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
+void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int revents) {
   uv_udp_t* handle;
 
   handle = container_of(w, uv_udp_t, io_watcher);
@@ -560,7 +559,7 @@ int uv__udp_disconnect(uv_udp_t* handle) {
     } while (r == -1 && errno == EINTR);
 
     if (r == -1) {
-#if defined(BSD)  /* The macro BSD is from sys/param.h */
+#if defined(BSD) || defined(__QNX__) /* The macro BSD is from sys/param.h */
       if (errno != EAFNOSUPPORT && errno != EINVAL)
         return UV__ERR(errno);
 #else
@@ -661,10 +660,10 @@ int uv__udp_try_send(uv_udp_t* handle,
   }
 
   err = uv__udp_sendmsg1(handle->io_watcher.fd, bufs, nbufs, addr);
-  if (err > 0)
-    return uv__count_bufs(bufs, nbufs);
+  if (err)
+    return err;
 
-  return err;
+  return uv__count_bufs(bufs, nbufs);
 }
 
 
@@ -766,8 +765,8 @@ static int uv__udp_set_membership6(uv_udp_t* handle,
     !defined(__NetBSD__) &&                                         \
     !defined(__ANDROID__) &&                                        \
     !defined(__DragonFly__) &&                                      \
-    !defined(__QNX__) &&                                            \
-    !defined(__GNU__)
+    !defined(__GNU__) &&                                            \
+    !defined(QNX_IOPKT)
 static int uv__udp_set_source_membership4(uv_udp_t* handle,
                                           const struct sockaddr_in* multicast_addr,
                                           const char* interface_addr,
@@ -881,7 +880,7 @@ int uv__udp_init_ex(uv_loop_t* loop,
   handle->recv_cb = NULL;
   handle->send_queue_size = 0;
   handle->send_queue_count = 0;
-  uv__io_init(&handle->io_watcher, uv__udp_io, fd);
+  uv__io_init(&handle->io_watcher, UV__UDP_IO, fd);
   uv__queue_init(&handle->write_queue);
   uv__queue_init(&handle->write_completed_queue);
 
@@ -957,8 +956,8 @@ int uv_udp_set_source_membership(uv_udp_t* handle,
     !defined(__NetBSD__) &&                                         \
     !defined(__ANDROID__) &&                                        \
     !defined(__DragonFly__) &&                                      \
-    !defined(__QNX__) &&                                            \
-    !defined(__GNU__)
+    !defined(__GNU__) &&                                          \
+    !defined(QNX_IOPKT)
   int err;
   union uv__sockaddr mcast_addr;
   union uv__sockaddr src_addr;
@@ -1295,7 +1294,7 @@ static int uv__udp_sendmsg1(int fd,
   /* UDP sockets don't EOF so we don't have to handle r=0 specially,
    * that only happens when the input was a zero-sized buffer.
    */
-  return 1;
+  return 0;
 }
 
 
@@ -1312,7 +1311,7 @@ static int uv__udp_sendmsgv(int fd,
   nsent = 0;
 
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) || \
-  (defined(__sun__) && defined(MSG_WAITFORONE))
+  (defined(__sun__) && defined(MSG_WAITFORONE)) || defined(__QNX__)
   if (count > 1) {
     for (i = 0; i < count; /*empty*/) {
       struct mmsghdr m[20];
@@ -1340,7 +1339,7 @@ static int uv__udp_sendmsgv(int fd,
     goto exit;
   }
 #endif  /* defined(__linux__) || defined(__FreeBSD__) || defined(__APPLE__) ||
-	 * (defined(__sun__) && defined(MSG_WAITFORONE))
+	 * (defined(__sun__) && defined(MSG_WAITFORONE)) || defined(__QNX__)
 	 */
 
   for (i = 0; i < count; i++, nsent++)
